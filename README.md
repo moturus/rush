@@ -25,11 +25,11 @@ A: Existing shell projects (a) aim to be 'a better shell', and (b) have a lot of
 ## What works
 
 - Basic line editing (arrows, home/end, del/backspace, basic history);
-- Command piping (e.g. 'ls | wc -l').
+- Command piping (e.g. 'ls | wc -l');
+- Globbing (using glob crate).
 
 ## TODO
 
-- Wildcard expansion (e.g. 'ls src/*.rs');
 - Non-interactive mode (batch processing);
 - Variables, environment, loops, eval, etc.
 
