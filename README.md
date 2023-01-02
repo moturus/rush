@@ -26,7 +26,7 @@ A: Existing shell projects (a) aim to be 'a better shell', and (b) have a lot of
 
 - Basic line editing (arrows, home/end, del/backspace, basic history);
 - Command piping (e.g. 'ls | wc -l');
-- Globbing (using glob crate).
+- Globbing (e.g. "ls src/\*.rs") (using glob crate).
 
 ## TODO
 
@@ -35,5 +35,5 @@ A: Existing shell projects (a) aim to be 'a better shell', and (b) have a lot of
 
 ## Contributions:
 
-- Welcome;
+- Are welcome;
 - If you plan to add a large feature or make a non-trivial refactoring, please discuss your approach first.
