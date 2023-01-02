@@ -54,23 +54,16 @@ impl LineParser {
                 } else if c == '\\' {
                     self.state = State::QuotedEscape(q);
                 } else if c == '*' {
-                    self.current_token.push('\\'); // Not to be expanded.
                     self.current_token.push('*');
                 } else {
                     self.current_token.push(c);
                 }
             }
             State::Escape => {
-                if c == '*' || c == '\\' {
-                    self.current_token.push('\\'); // Not to be expanded.
-                }
                 self.current_token.push(c);
                 self.state = State::Normal;
             }
             State::QuotedEscape(q) => {
-                if c == '*' || c == '\\' {
-                    self.current_token.push('\\'); // Not to be expanded.
-                }
                 self.current_token.push(c);
                 self.state = State::Quoted(q);
             }
