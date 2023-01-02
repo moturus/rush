@@ -1,3 +1,5 @@
+use std::os::unix::prelude::OsStrExt;
+
 #[derive(PartialEq, Eq, Debug)]
 enum State {
     Normal,
@@ -51,15 +53,24 @@ impl LineParser {
                     self.state = State::Normal;
                 } else if c == '\\' {
                     self.state = State::QuotedEscape(q);
+                } else if c == '*' {
+                    self.current_token.push('\\'); // Not to be expanded.
+                    self.current_token.push('*');
                 } else {
                     self.current_token.push(c);
                 }
             }
             State::Escape => {
+                if c == '*' || c == '\\' {
+                    self.current_token.push('\\'); // Not to be expanded.
+                }
                 self.current_token.push(c);
                 self.state = State::Normal;
             }
             State::QuotedEscape(q) => {
+                if c == '*' || c == '\\' {
+                    self.current_token.push('\\'); // Not to be expanded.
+                }
                 self.current_token.push(c);
                 self.state = State::Quoted(q);
             }
@@ -72,7 +83,13 @@ impl LineParser {
         if trimmed.is_empty() {
             return;
         }
-        self.current_command.push(trimmed.to_owned());
+
+        if self.current_command.is_empty() {
+            self.current_command.push(trimmed.to_owned());
+        } else {
+            let mut processed = Self::process_arg(trimmed);
+            self.current_command.append(&mut processed);
+        }
     }
 
     fn finish_command(&mut self) {
@@ -83,6 +100,31 @@ impl LineParser {
         if !self.current_command.is_empty() {
             self.result.push(std::mem::take(&mut self.current_command));
         }
+    }
+
+    fn process_arg(arg: &str) -> Vec<String> {
+        let mut result: Vec<String> = Vec::new();
+
+        match glob::glob(arg) {
+            Ok(paths) => {
+                for entry in paths {
+                    match entry {
+                        Ok(path) => match std::str::from_utf8(path.as_os_str().as_bytes()) {
+                            Ok(s) => result.push(s.to_owned()),
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        if result.is_empty() {
+            result.push(arg.to_owned());
+        }
+
+        result
     }
 
     // Parse a line; return a vector of pipelined commands to run, each

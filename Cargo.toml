@@ -6,6 +6,9 @@ edition = "2021"
 authors = ["Lasiotus"]
 license = "MIT OR Apache-2.0"
 
+[dependencies]
+glob = "0.3.0"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
