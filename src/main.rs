@@ -27,6 +27,10 @@ fn main() {
         std::process::exit(1)
     }
 
+    if std::env::current_dir().is_err() {
+        std::env::set_current_dir(std::path::Path::new("/")).unwrap();
+    }
+
     let _cleanup = Cleanup {}; // On panic, restore the terminal state.
     let term = term::Term::new();
     let mut parser = line_parser::LineParser::new();

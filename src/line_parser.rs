@@ -1,5 +1,3 @@
-use std::os::unix::prelude::OsStrExt;
-
 #[derive(PartialEq, Eq, Debug)]
 enum State {
     Normal,
@@ -102,8 +100,8 @@ impl LineParser {
             Ok(paths) => {
                 for entry in paths {
                     match entry {
-                        Ok(path) => match std::str::from_utf8(path.as_os_str().as_bytes()) {
-                            Ok(s) => result.push(s.to_owned()),
+                        Ok(path) => match path.to_str() {
+                            Some(s) => result.push(s.to_owned()),
                             _ => {}
                         },
                         _ => {}
