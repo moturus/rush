@@ -35,10 +35,17 @@ pub fn run(commands: Vec<Vec<String>>) {
                     Stdio::inherit()
                 };
 
+                let stderr = if idx < (commands.len() - 1) {
+                    Stdio::piped()
+                } else {
+                    Stdio::inherit()
+                };
+
                 let output = std::process::Command::new(command)
                     .args(args)
                     .stdin(stdin)
                     .stdout(stdout)
+                    .stderr(stderr)
                     .spawn();
 
                 match output {
@@ -47,7 +54,7 @@ pub fn run(commands: Vec<Vec<String>>) {
                     }
                     Err(e) => {
                         prev_child = None;
-                        eprintln!("{}", e);
+                        println!("Command [{}] failed with error: [{}].", command, e);
                     }
                 };
             }
@@ -56,12 +63,10 @@ pub fn run(commands: Vec<Vec<String>>) {
 
     if let Some(mut last) = prev_child {
         match last.wait() {
-            Ok(_status) => {
-                /*
+            Ok(status) => {
                 if !status.success() {
                     eprintln!("wait() failed: {:?}", status.code());
                 }
-                */
             }
             Err(err) => {
                 eprintln!("{:?}", err);
