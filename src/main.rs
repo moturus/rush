@@ -1,3 +1,4 @@
+#![feature(io_error_more)]
 #![feature(is_terminal)]
 
 mod exec;

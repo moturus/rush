@@ -2,23 +2,24 @@ use std::{path::Path, process::Stdio};
 
 pub fn run(commands: Vec<Vec<String>>) {
     let mut prev_child = None;
+    let mut cmd = "";
 
     for idx in 0..commands.len() {
         let command = &commands[idx];
 
-        let cmd = command[0].as_str();
+        cmd = command[0].as_str();
         let args = &command[1..];
         match cmd {
             "cd" => {
                 if args.len() != 1 {
-                    eprintln!("cd: must have a single argument.");
+                    println!("cd: must have a single argument.");
                     prev_child = None;
                     continue;
                 }
                 let new_dir = args[0].as_str();
                 let root = Path::new(new_dir);
                 if let Err(e) = std::env::set_current_dir(&root) {
-                    eprintln!("{}", e);
+                    println!("{}", e);
                 }
 
                 prev_child = None;
@@ -54,7 +55,12 @@ pub fn run(commands: Vec<Vec<String>>) {
                     }
                     Err(e) => {
                         prev_child = None;
-                        println!("Command [{}] failed with error: [{}].", command, e);
+                        match e.kind() {
+                            std::io::ErrorKind::InvalidFilename => {
+                                println!("{}: command not found.", cmd)
+                            }
+                            _ => println!("Command [{}] failed with error: [{}].", command, e),
+                        }
                     }
                 };
             }
@@ -65,11 +71,13 @@ pub fn run(commands: Vec<Vec<String>>) {
         match last.wait() {
             Ok(status) => {
                 if !status.success() {
-                    eprintln!("wait() failed: {:?}", status.code());
+                    if let Some(code) = status.code() {
+                        println!("[{}] exited with status {:?}", cmd, code);
+                    }
                 }
             }
             Err(err) => {
-                eprintln!("{:?}", err);
+                println!("{:?}", err);
             }
         }
     }

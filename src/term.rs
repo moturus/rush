@@ -1,4 +1,4 @@
-use std::io::{Read, Stdin, Stdout, Write};
+use std::io::{Read, Stderr, Stdin, Stdout, Write};
 use std::sync::atomic::AtomicUsize;
 use std::vec::Vec;
 
@@ -64,6 +64,7 @@ pub struct Term {
 
     stdin: Stdin,
     stdout: Stdout,
+    stderr: Stderr,
 
     debug: bool,
 }
@@ -114,6 +115,7 @@ impl Term {
 
             stdin: std::io::stdin(),
             stdout: std::io::stdout(),
+            stderr: std::io::stderr(),
 
             line_start: 0,
             current_pos: 0,
@@ -436,7 +438,7 @@ impl Term {
     }
 
     fn start_line(&mut self) {
-        prompt(&mut self.stdout);
+        prompt(&mut self.stdout, &mut self.stderr);
         self.line.clear();
         self.prev_line.clear();
         let (_, col) = self.get_cursor_pos();
@@ -599,7 +601,8 @@ impl Term {
     }
 }
 
-fn prompt(stdout: &mut Stdout) {
+fn prompt(stdout: &mut Stdout, stderr: &mut Stderr) {
+    stderr.flush().unwrap();
     stdout
         .write(
             format!(
