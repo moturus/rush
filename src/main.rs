@@ -1,6 +1,8 @@
 #![feature(io_error_more)]
 #![feature(is_terminal)]
 
+use exec::run_script;
+
 mod exec;
 mod line_parser;
 mod term;
@@ -16,6 +18,38 @@ impl Drop for Cleanup {
 }
 
 fn main() {
+    let mut global = false;
+    let mut args = Vec::new();
+    let mut script = None;
+
+    let args_raw: Vec<_> = std::env::args().collect();
+
+    for idx in 1..args_raw.len() {
+        let arg = args_raw[idx].clone();
+        if idx == 1 {
+            if arg.as_str() == "-c" {
+                global = true;
+                continue;
+            }
+        }
+
+        if script.is_none() {
+            script = Some(arg.clone());
+        }
+        args.push(arg);
+    }
+
+    if let Some(script) = script {
+        if !global {
+            match run_script(script.as_str(), args, false) {
+                Ok(()) => std::process::exit(0),
+                Err(err) => std::process::exit(err),
+            }
+        }
+
+        run_script(script.as_str(), args, true).ok();
+    }
+
     let is_terminal = std::io::IsTerminal::is_terminal(&std::io::stdin());
     if is_terminal && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         // Is this even possible? If so, how should we behave?
@@ -36,9 +70,10 @@ fn main() {
     let term = term::Term::new();
     let mut parser = line_parser::LineParser::new();
 
+    let args = vec![];
     loop {
         if let Some(commands) = parser.parse_line(term.readline().as_str()) {
-            exec::run(commands);
+            exec::run(commands, false, &args).ok(); // Ignore results in the interactive mode.
         }
     }
 }
