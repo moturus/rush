@@ -518,6 +518,10 @@ impl Term {
 
         let mut buf = [0; 32];
         let sz = self.stdin.read(&mut buf).unwrap();
+        if sz <= 3 {
+            // Unexpected (child) output occurred concurrently. No big deal.
+            return (0, 0);
+        }
         assert!(sz > 3);
         assert!(sz < buf.len());
 
