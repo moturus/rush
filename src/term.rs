@@ -541,6 +541,10 @@ impl Term {
             }
             if c == b'R' {
                 assert!(!reading_rows);
+                if idx != (sz - 1) {
+                    // Unexpected (child) output occurred concurrently. No big deal.
+                    return (0, 0);
+                }
                 assert_eq!(idx, sz - 1);
                 break;
             }
