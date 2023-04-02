@@ -69,6 +69,10 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
     let mut prev_child = None;
     let mut cmd = None;
 
+    if commands.len() > 1 {
+        todo!("piping needs better stdio treatment");
+    }
+
     for idx in 0..commands.len() {
         let mut command = commands[idx].as_slice();
 

@@ -517,47 +517,52 @@ impl Term {
         self.write(&[0x1b, b'[', b'6', b'n']); // Query the terminal for cursor position.
 
         let mut buf = [0; 32];
-        let sz = self.stdin.read(&mut buf).unwrap();
-        if sz <= 3 {
-            // Unexpected (child) output occurred concurrently. No big deal.
-            return (0, 0);
-        }
-        assert!(sz > 3);
-        assert!(sz < buf.len());
-
-        assert_eq!(0x1b, buf[0]);
-        assert_eq!(b'[', buf[1]);
+        let mut offset = 0_usize;
+        let mut reading_rows = true;
         let mut row = 0_u32;
         let mut col = 0_u32;
+        let mut idx = 2_usize;
 
-        let mut reading_rows = true;
+        'outer: loop {
+            let sz = self.stdin.read(&mut buf[offset..]).unwrap();
+            assert!((sz + offset) < buf.len());
 
-        for idx in 2..sz {
-            let c = buf[idx];
-            if c == b';' {
-                assert!(reading_rows);
-                reading_rows = false;
+            if offset + sz < 2 {
+                offset += sz;
                 continue;
             }
-            if c == b'R' {
-                assert!(!reading_rows);
-                if idx != (sz - 1) {
-                    // Unexpected (child) output occurred concurrently. No big deal.
-                    return (0, 0);
+
+            assert_eq!(0x1b, buf[0]);
+            assert_eq!(b'[', buf[1]);
+
+            while idx < (offset + sz) {
+                let c = buf[idx];
+                if c == b';' {
+                    assert!(reading_rows);
+                    reading_rows = false;
+                    idx += 1;
+                    continue;
                 }
-                assert_eq!(idx, sz - 1);
-                break;
+                if c == b'R' {
+                    assert!(!reading_rows);
+                    assert_eq!(idx, (offset + sz - 1));
+                    break 'outer;
+                }
+
+                assert!(c >= b'0');
+                assert!(c <= b'9');
+                let n = (c - b'0') as u32;
+
+                if reading_rows {
+                    row = row * 10 + n;
+                } else {
+                    col = col * 10 + n;
+                }
+
+                idx += 1;
             }
 
-            assert!(c >= b'0');
-            assert!(c <= b'9');
-            let n = (c - b'0') as u32;
-
-            if reading_rows {
-                row = row * 10 + n;
-            } else {
-                col = col * 10 + n;
-            }
+            offset += sz;
         }
 
         (row, col)
