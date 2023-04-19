@@ -1,5 +1,4 @@
 #![feature(io_error_more)]
-#![feature(is_terminal)]
 
 use exec::run_script;
 
