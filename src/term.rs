@@ -513,7 +513,7 @@ impl Term {
         self.show_cursor();
     }
 
-    fn get_cursor_pos(&mut self) -> (u32, u32) {
+    fn try_get_cursor_pos(&mut self) -> Result<(u32, u32), ()> {
         self.write(&[0x1b, b'[', b'6', b'n']); // Query the terminal for cursor position.
 
         let mut buf = [0; 32];
@@ -532,7 +532,9 @@ impl Term {
                 continue;
             }
 
-            assert_eq!(0x1b, buf[0]);
+            if buf[0] != 0x1b {
+                return Err(());
+            }
             assert_eq!(b'[', buf[1]);
 
             while idx < (offset + sz) {
@@ -565,7 +567,15 @@ impl Term {
             offset += sz;
         }
 
-        (row, col)
+        Ok((row, col))
+    }
+
+    fn get_cursor_pos(&mut self) -> (u32, u32) {
+        loop {
+            if let Ok(res) = self.try_get_cursor_pos() {
+                return res;
+            }
+        }
     }
 
     fn maybe_add_to_history(&mut self, cmd: &str) {
