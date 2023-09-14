@@ -51,7 +51,12 @@ pub fn parse_args(args: &[String]) -> Result<(Vec<String>, Option<Redirect>), ()
         let file = if op == ">" {
             std::fs::File::create(fname.clone())
         } else {
-            std::fs::OpenOptions::new().append(true).open(fname.clone())
+            match std::fs::OpenOptions::new().append(true).open(fname.clone()) {
+                Ok(f) => Ok(f),
+                // Note: in bash, '>>' creates a file if it does not exist,
+                // but Rust FS API says that only existing files can be appended to.
+                Err(_) => std::fs::File::create(fname.clone()),
+            }
         };
 
         if file.is_err() {
