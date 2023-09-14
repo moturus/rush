@@ -127,7 +127,14 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
                     Stdio::from(output.stdout.unwrap())
                 });
 
-                let stdout = if idx < (commands.len() - 1) {
+                let redirect = super::redirect::parse_args(args);
+                if redirect.is_err() {
+                    // parse_args() eprints the error message.
+                    return Err(-1);
+                }
+                let (args, maybe_redirect) = redirect.unwrap();
+
+                let stdout = if (idx < (commands.len() - 1)) || maybe_redirect.is_some() {
                     Stdio::piped()
                 } else {
                     Stdio::inherit()
@@ -148,7 +155,12 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
                     .spawn();
 
                 match output {
-                    Ok(output) => {
+                    Ok(mut output) => {
+                        if let Some(mut redirect) = maybe_redirect {
+                            if let Some(child_stdout) = &mut output.stdout {
+                                redirect.consume_stdout(child_stdout);
+                            }
+                        }
                         prev_child = Some(output);
                     }
                     Err(e) => match e.kind() {

@@ -4,6 +4,7 @@ use exec::run_script;
 
 mod exec;
 mod line_parser;
+mod redirect;
 mod term;
 
 #[cfg(unix)]
