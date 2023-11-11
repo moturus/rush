@@ -7,7 +7,7 @@ authors = ["Lasiotus"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-glob = "0.3.1"
+# glob = "0.3.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

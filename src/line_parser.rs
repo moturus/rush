@@ -96,6 +96,9 @@ impl LineParser {
     fn process_arg(arg: &str) -> Vec<String> {
         let mut result: Vec<String> = Vec::new();
 
+        // Disable glob processing: it removes trailing slashes, which
+        // are meaningful in commands like mv.
+        /*
         match glob::glob(arg) {
             Ok(paths) => {
                 for entry in paths {
@@ -114,6 +117,9 @@ impl LineParser {
         if result.is_empty() {
             result.push(arg.to_owned());
         }
+        */
+
+        result.push(arg.to_owned());
 
         result
     }
