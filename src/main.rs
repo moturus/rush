@@ -19,6 +19,7 @@ impl Drop for Cleanup {
 
 fn main() {
     let mut global = false;
+    let mut interactive = false;
     let mut args = Vec::new();
     let mut script = None;
 
@@ -31,12 +32,34 @@ fn main() {
                 global = true;
                 continue;
             }
+            if arg.as_str() == "-i" {
+                interactive = true;
+                continue;
+            }
         }
 
         if script.is_none() {
             script = Some(arg.clone());
         }
         args.push(arg);
+    }
+
+    if interactive {
+        if let Some(script) = script {
+            // This is usually config, setting PATH and such.
+            run_script(script.as_str(), args, true).ok();
+        }
+
+        let mut parser = line_parser::LineParser::new();
+        let args = vec![];
+        loop {
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            if let Some(commands) = parser.parse_line(input.trim()) {
+                exec::run(commands, false, &args).ok(); // Ignore results in the interactive mode.
+            }
+        }
+        // unreachable
     }
 
     if let Some(script) = script {
@@ -47,6 +70,7 @@ fn main() {
             }
         }
 
+        // This is usually config, setting PATH and such.
         run_script(script.as_str(), args, true).ok();
     }
 
