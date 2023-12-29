@@ -17,8 +17,16 @@ impl Drop for Cleanup {
     }
 }
 
+fn print_usage_and_exit(code: i32) -> ! {
+    eprintln!("(rush) usage:");
+    eprintln!("    -h: print this message");
+    eprintln!("    -i: interactive mode: read commands from stdin");
+    eprintln!("    -t: terminal mode");
+    std::process::exit(code);
+}
+
 fn main() {
-    let mut global = false;
+    let mut terminal = false;
     let mut interactive = false;
     let mut args = Vec::new();
     let mut script = None;
@@ -28,13 +36,19 @@ fn main() {
     for idx in 1..args_raw.len() {
         let arg = args_raw[idx].clone();
         if idx == 1 {
-            if arg.as_str() == "-c" {
-                global = true;
+            if arg.as_str() == "-t" {
+                terminal = true;
                 continue;
             }
             if arg.as_str() == "-i" {
                 interactive = true;
                 continue;
+            }
+            if arg.as_str() == "-h" {
+                print_usage_and_exit(0);
+            }
+            if arg.as_str().starts_with('-') {
+                print_usage_and_exit(1);
             }
         }
 
@@ -63,7 +77,7 @@ fn main() {
     }
 
     if let Some(script) = script {
-        if !global {
+        if !terminal {
             match run_script(script.as_str(), args, false) {
                 Ok(()) => std::process::exit(0),
                 Err(err) => std::process::exit(err),
@@ -82,7 +96,7 @@ fn main() {
     }
 
     if !is_terminal {
-        eprintln!("rush: stdin is not a terminal: not implemented yet.");
+        eprintln!("rush: stdin is not a terminal.");
         std::process::exit(1)
     }
 
