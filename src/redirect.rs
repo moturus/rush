@@ -4,11 +4,11 @@ use std::{
     process::ChildStdout,
 };
 
-pub struct Redirect {
+pub struct RedirectToFile {
     stdout_redirect: File,
 }
 
-impl Redirect {
+impl RedirectToFile {
     pub fn consume_stdout(&mut self, child_stdout: &mut ChildStdout) {
         let mut bytes = vec![];
         child_stdout.read_to_end(&mut bytes).ok();
@@ -18,7 +18,7 @@ impl Redirect {
 
 // Parse arguments, find stdiout redirects like "> file" and ">> file".
 // TODO: add stdio and stderr redirects.
-pub fn parse_args(args: &[String]) -> Result<(Vec<String>, Option<Redirect>), ()> {
+pub fn parse_args(args: &[String]) -> Result<(Vec<String>, Option<RedirectToFile>), ()> {
     let mut args_out = Vec::with_capacity(args.len());
     let mut op = None;
     let mut redirect_fname = None;
@@ -64,7 +64,7 @@ pub fn parse_args(args: &[String]) -> Result<(Vec<String>, Option<Redirect>), ()
             return Err(());
         }
 
-        redirect = Some(Redirect {
+        redirect = Some(RedirectToFile {
             stdout_redirect: file.unwrap(),
         });
     }

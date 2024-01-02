@@ -1,5 +1,6 @@
-use std::io::{Read, Stderr, Stdin, Stdout, Write};
-use std::sync::atomic::AtomicUsize;
+use std::collections::VecDeque;
+use std::io::{Read, Write};
+use std::sync::Mutex;
 use std::vec::Vec;
 
 #[cfg(unix)]
@@ -49,7 +50,7 @@ enum ProcessByteResult {
     Escape(EscapesIn),
 }
 
-pub struct Term {
+struct Term {
     history: Vec<Vec<u8>>,
     mode: ProcessingMode,
     prev_mode: ProcessingMode,
@@ -58,38 +59,15 @@ pub struct Term {
     line_start: u32,    // Where the input starts after the prompt.
     current_pos: u32,   // Relative to line start.
 
+    incoming: VecDeque<u8>,
+
     term_impl: term_impl::TermImpl,
-
     escapes_in: std::collections::BTreeMap<&'static [u8], EscapesIn>,
-
-    stdin: Stdin,
-    stdout: Stdout,
-    stderr: Stderr,
-
     debug: bool,
 }
 
-// Store a pointer to the singleton Term. Don't bother with mutexes,
-// as the application is single-threaded for now. If/when it becomes
-// multithreaded, we will refactor.
-static TERM: AtomicUsize = AtomicUsize::new(0);
-
-pub fn on_exit() {
-    let term_addr = TERM.load(std::sync::atomic::Ordering::Relaxed);
-    if term_addr == 0 {
-        return;
-    }
-
-    // Safe because we are single-threaded: see Term::new().
-    unsafe {
-        let term = (term_addr as *mut Term).as_mut().unwrap();
-        term.write("\x1b[ q".as_bytes()); // Reset the cursor.
-        term.term_impl.on_exit();
-    }
-}
-
 impl Term {
-    pub fn new() -> &'static mut Self {
+    fn new() -> Self {
         let mut escapes_in: std::collections::BTreeMap<&'static [u8], EscapesIn> =
             std::collections::BTreeMap::new();
 
@@ -104,7 +82,7 @@ impl Term {
         escapes_in.insert("\x1b[4~".as_bytes(), EscapesIn::End);
         escapes_in.insert("\x1b[8~".as_bytes(), EscapesIn::End);
 
-        let self_ = Box::leak(Box::new(Self {
+        Self {
             history: vec![],
             mode: ProcessingMode::Normal,
             prev_mode: ProcessingMode::Normal,
@@ -112,22 +90,27 @@ impl Term {
             prev_line: vec![],
             term_impl: term_impl::TermImpl::new(),
             escapes_in,
-
-            stdin: std::io::stdin(),
-            stdout: std::io::stdout(),
-            stderr: std::io::stderr(),
-
             line_start: 0,
             current_pos: 0,
+            incoming: VecDeque::new(),
 
             debug: false,
-        }));
+        }
+    }
 
-        let term_addr = self_ as *mut _ as usize;
-        let prev = TERM.swap(term_addr, std::sync::atomic::Ordering::Relaxed);
-        assert_eq!(prev, 0);
-
-        self_
+    fn next_byte(&mut self) -> u8 {
+        if let Some(c) = self.incoming.pop_front() {
+            c
+        } else {
+            let mut buf = [0_u8; 16];
+            let sz = std::io::stdin().read(&mut buf).unwrap();
+            assert!(sz > 0);
+            let c = buf[0];
+            for b in &buf[1..sz] {
+                self.incoming.push_back(*b);
+            }
+            c
+        }
     }
 
     fn process_next_byte(&mut self, c: u8) -> ProcessByteResult {
@@ -147,9 +130,10 @@ impl Term {
                     8 | 127 /* BS */ => {
                         ProcessByteResult::Escape(EscapesIn::Backspace)
                     },
-                    13 | 10 /* CR/NL */ => {
+                    10 /* 13 | 10 */ /* CR/NL */ => {
                         ProcessByteResult::Newline
                     }
+                    13 => ProcessByteResult::Continue, // Avoid double newlines
                     0x1b /* ESC */ => {
                         self.prev_mode = self.mode.clone();
                         self.mode = ProcessingMode::Escape(vec![0x1b]);
@@ -218,7 +202,7 @@ impl Term {
         }
     }
 
-    pub fn readline(&mut self) -> String {
+    fn readline(&mut self) -> Option<String> {
         self.term_impl.readline_start();
         self.start_line();
 
@@ -230,201 +214,199 @@ impl Term {
             self.debug_log(msg.as_str());
         }
 
-        let mut buf: [u8; 16] = [0; 16];
-
         loop {
-            let sz = self.stdin.read(&mut buf).unwrap();
-            for idx in 0..sz {
-                match self.process_next_byte(buf[idx]) {
-                    ProcessByteResult::Byte(c) => {
-                        match self.mode {
-                            ProcessingMode::Normal => {}
-                            ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
-                                self.mode = ProcessingMode::Normal;
-                                self.show_cursor();
-                            }
-                        }
-                        assert!(self.current_pos <= (self.line.len() as u32));
-                        if self.current_pos == (self.line.len() as u32) {
-                            // Add to end.
-                            self.line.push(c);
-                            self.write(&[c]);
-                        } else {
-                            // Insert.
-                            self.line.insert(self.current_pos as usize, c);
-                            self.redraw_line();
-                            self.write(&[0x1b, b'[', b'1', b'C']); // Move right.
-                        }
-                        self.current_pos += 1;
-                        self.debug_log(format!("got c {}", c).as_str());
-                    }
-                    ProcessByteResult::Newline => {
-                        match self.mode {
-                            ProcessingMode::Normal => {}
-                            ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
-                                self.mode = ProcessingMode::Normal;
-                                self.show_cursor();
-                            }
-                        }
-                        let cmd = match std::str::from_utf8(&self.line[..]) {
-                            Ok(s) => s.trim(),
-                            Err(err) => {
-                                eprintln!("\nError: non-utf8 input: {:?}.", err);
-                                crate::exit(1);
-                            }
-                        }
-                        .to_owned();
-                        if cmd.is_empty() {
-                            self.write("\r\n".as_bytes());
-                            self.start_line();
-                            break;
-                        }
-                        if self.process_locally(cmd.as_str()) {
-                            break;
-                        } else {
-                            self.write("\r\n".as_bytes());
-                            self.term_impl.readline_done();
-                            self.maybe_add_to_history(cmd.as_str());
-                            return cmd;
+            let byte = self.next_byte();
+            match self.process_next_byte(byte) {
+                ProcessByteResult::Byte(c) => {
+                    match self.mode {
+                        ProcessingMode::Normal => {}
+                        ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
+                            self.mode = ProcessingMode::Normal;
+                            self.show_cursor();
                         }
                     }
-                    ProcessByteResult::Continue => {}
-                    ProcessByteResult::Escape(e) => match e {
-                        EscapesIn::UpArrow => match self.mode {
-                            ProcessingMode::Normal => {
-                                if self.history.len() > 0 {
-                                    self.mode = ProcessingMode::History(self.history.len() - 1);
-                                    self.show_cursor();
-                                    let prev = self.history.last().unwrap().clone();
-                                    if self.line == prev {
-                                        continue;
-                                    }
-                                    self.prev_line = self.line.clone();
-                                    self.line = prev;
-                                    self.current_pos = self.line.len() as u32;
-                                    self.redraw_line();
-                                } else {
-                                    self.beep();
-                                }
-                            }
-                            ProcessingMode::Escape(_) => {
-                                panic!("UpArrow: unexpected 'Escape' mode.");
-                            }
-                            ProcessingMode::History(idx) => {
-                                if idx > 0 {
-                                    self.mode = ProcessingMode::History(idx - 1);
-                                    self.line = self.history[idx - 1].clone();
-                                    self.current_pos = self.line.len() as u32;
-                                    self.redraw_line();
-                                } else {
-                                    self.beep();
-                                }
-                            }
-                        },
-                        EscapesIn::DownArrow => match self.mode {
-                            ProcessingMode::Normal => self.beep(),
-                            ProcessingMode::Escape(_) => {
-                                panic!("UpArrow: unexpected 'Escape' mode.");
-                            }
-                            ProcessingMode::History(idx) => {
-                                if idx == self.history.len() {
-                                    self.beep(); // prev_line
-                                } else {
-                                    self.mode = ProcessingMode::History(idx + 1);
-                                    if idx == (self.history.len() - 1) {
-                                        self.line = self.prev_line.clone();
-                                    } else {
-                                        self.line = self.history[idx + 1].clone();
-                                    }
-                                    self.current_pos = self.line.len() as u32;
-                                    self.redraw_line();
-                                }
-                            }
-                        },
-                        EscapesIn::LeftArrow => {
-                            if self.current_pos == 0 {
-                                self.beep();
-                                continue;
-                            }
-                            self.current_pos -= 1;
-                            self.write(&[0x1b, b'[', b'1', b'D']);
-                            continue;
+                    assert!(self.current_pos <= (self.line.len() as u32));
+                    if self.current_pos == (self.line.len() as u32) {
+                        // Add to end.
+                        self.line.push(c);
+                        self.write(&[c]);
+                    } else {
+                        // Insert.
+                        self.line.insert(self.current_pos as usize, c);
+                        self.redraw_line();
+                        self.write(&[0x1b, b'[', b'1', b'C']); // Move right.
+                    }
+                    self.current_pos += 1;
+                    self.debug_log(format!("got c {}", c).as_str());
+                }
+                ProcessByteResult::Newline => {
+                    match self.mode {
+                        ProcessingMode::Normal => {}
+                        ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
+                            self.mode = ProcessingMode::Normal;
+                            self.show_cursor();
                         }
-                        EscapesIn::RightArrow => {
-                            if self.current_pos >= (self.line.len() as u32) {
-                                self.beep();
-                                continue;
-                            }
-                            self.write(&[0x1b, b'[', b'1', b'C']);
-                            self.current_pos += 1;
-                            continue;
+                    }
+                    let cmd = match std::str::from_utf8(&self.line[..]) {
+                        Ok(s) => s.trim(),
+                        Err(err) => {
+                            eprintln!("\nError: non-utf8 input: {:?}.", err);
+                            crate::exit(1);
                         }
-                        EscapesIn::Backspace => {
-                            match self.mode {
-                                ProcessingMode::Normal => {}
-                                ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
-                                    self.mode = ProcessingMode::Normal;
-                                    self.show_cursor();
-                                }
-                            }
-                            if self.current_pos > 0 {
-                                self.current_pos -= 1;
-                                self.line.remove(self.current_pos as usize);
-                                self.write(&[0x1b, b'[', b'1', b'D']);
-                                self.redraw_line();
-                            } else {
-                                self.beep();
-                            }
-                            continue;
-                        }
-                        EscapesIn::Delete => {
-                            match self.mode {
-                                ProcessingMode::Normal => {}
-                                ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
-                                    self.mode = ProcessingMode::Normal;
-                                    self.show_cursor();
-                                }
-                            }
-                            if self.current_pos < (self.line.len() as u32) {
-                                self.line.remove(self.current_pos as usize);
-                                self.redraw_line();
-                            } else {
-                                self.beep();
-                            }
-                        }
-                        EscapesIn::Home => {
-                            if self.current_pos > 0 {
-                                self.current_pos = 0;
-                                let (row, _) = self.get_cursor_pos();
-                                self.move_cursor(row, self.line_start);
-                            }
-                        }
-                        EscapesIn::End => {
-                            if self.current_pos < (self.line.len() as u32) {
-                                self.current_pos = self.line.len() as u32;
-                                let (row, _) = self.get_cursor_pos();
-                                self.move_cursor(row, self.line_start + self.current_pos);
-                            }
-                        }
-                        EscapesIn::CtrlC => {
-                            match self.mode {
-                                ProcessingMode::Normal => {}
-                                ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
-                                    self.mode = ProcessingMode::Normal;
-                                    self.show_cursor();
-                                }
-                            }
-                            self.write("^C\n\r".as_bytes());
-                            self.start_line();
-                        }
-                    },
-                    ProcessByteResult::Clear => {
-                        self.beep();
+                    }
+                    .to_owned();
+                    if cmd.is_empty() {
+                        self.write("\r\n".as_bytes());
+                        self.start_line();
                         break;
                     }
+                    if self.process_locally(cmd.as_str()) {
+                        break;
+                    } else {
+                        self.write("\r\n".as_bytes());
+                        self.term_impl.readline_done();
+                        self.maybe_add_to_history(cmd.as_str());
+                        return Some(cmd);
+                    }
+                }
+                ProcessByteResult::Continue => {}
+                ProcessByteResult::Escape(e) => match e {
+                    EscapesIn::UpArrow => match self.mode {
+                        ProcessingMode::Normal => {
+                            if self.history.len() > 0 {
+                                self.mode = ProcessingMode::History(self.history.len() - 1);
+                                self.show_cursor();
+                                let prev = self.history.last().unwrap().clone();
+                                if self.line == prev {
+                                    continue;
+                                }
+                                self.prev_line = self.line.clone();
+                                self.line = prev;
+                                self.current_pos = self.line.len() as u32;
+                                self.redraw_line();
+                            } else {
+                                self.beep();
+                            }
+                        }
+                        ProcessingMode::Escape(_) => {
+                            panic!("UpArrow: unexpected 'Escape' mode.");
+                        }
+                        ProcessingMode::History(idx) => {
+                            if idx > 0 {
+                                self.mode = ProcessingMode::History(idx - 1);
+                                self.line = self.history[idx - 1].clone();
+                                self.current_pos = self.line.len() as u32;
+                                self.redraw_line();
+                            } else {
+                                self.beep();
+                            }
+                        }
+                    },
+                    EscapesIn::DownArrow => match self.mode {
+                        ProcessingMode::Normal => self.beep(),
+                        ProcessingMode::Escape(_) => {
+                            panic!("DownArrow: unexpected 'Escape' mode.");
+                        }
+                        ProcessingMode::History(idx) => {
+                            if idx == self.history.len() {
+                                self.beep(); // prev_line
+                            } else {
+                                self.mode = ProcessingMode::History(idx + 1);
+                                if idx == (self.history.len() - 1) {
+                                    self.line = self.prev_line.clone();
+                                } else {
+                                    self.line = self.history[idx + 1].clone();
+                                }
+                                self.current_pos = self.line.len() as u32;
+                                self.redraw_line();
+                            }
+                        }
+                    },
+                    EscapesIn::LeftArrow => {
+                        if self.current_pos == 0 {
+                            self.beep();
+                            continue;
+                        }
+                        self.current_pos -= 1;
+                        self.write(&[0x1b, b'[', b'1', b'D']);
+                        continue;
+                    }
+                    EscapesIn::RightArrow => {
+                        if self.current_pos >= (self.line.len() as u32) {
+                            self.beep();
+                            continue;
+                        }
+                        self.write(&[0x1b, b'[', b'1', b'C']);
+                        self.current_pos += 1;
+                        continue;
+                    }
+                    EscapesIn::Backspace => {
+                        match self.mode {
+                            ProcessingMode::Normal => {}
+                            ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
+                                self.mode = ProcessingMode::Normal;
+                                self.show_cursor();
+                            }
+                        }
+                        if self.current_pos > 0 {
+                            self.current_pos -= 1;
+                            self.line.remove(self.current_pos as usize);
+                            self.write(&[0x1b, b'[', b'1', b'D']);
+                            self.redraw_line();
+                        } else {
+                            self.beep();
+                        }
+                        continue;
+                    }
+                    EscapesIn::Delete => {
+                        match self.mode {
+                            ProcessingMode::Normal => {}
+                            ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
+                                self.mode = ProcessingMode::Normal;
+                                self.show_cursor();
+                            }
+                        }
+                        if self.current_pos < (self.line.len() as u32) {
+                            self.line.remove(self.current_pos as usize);
+                            self.redraw_line();
+                        } else {
+                            self.beep();
+                        }
+                    }
+                    EscapesIn::Home => {
+                        if self.current_pos > 0 {
+                            self.current_pos = 0;
+                            let (row, _) = self.get_cursor_pos();
+                            self.move_cursor(row, self.line_start);
+                        }
+                    }
+                    EscapesIn::End => {
+                        if self.current_pos < (self.line.len() as u32) {
+                            self.current_pos = self.line.len() as u32;
+                            let (row, _) = self.get_cursor_pos();
+                            self.move_cursor(row, self.line_start + self.current_pos);
+                        }
+                    }
+                    EscapesIn::CtrlC => {
+                        match self.mode {
+                            ProcessingMode::Normal => {}
+                            ProcessingMode::Escape(_) | ProcessingMode::History(_) => {
+                                self.mode = ProcessingMode::Normal;
+                                self.show_cursor();
+                            }
+                        }
+                        self.write("^C\n\r".as_bytes());
+                        self.start_line();
+                    }
+                },
+                ProcessByteResult::Clear => {
+                    self.beep();
+                    break;
                 }
             }
-        }
+        } // loop
+
+        None
     }
 
     fn beep(&mut self) {
@@ -432,25 +414,26 @@ impl Term {
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        let written = self.stdout.write(bytes).unwrap();
-        assert_eq!(written, bytes.len());
-        self.stdout.flush().unwrap();
+        let mut stdout = std::io::stdout().lock();
+        stdout.write_all(bytes).unwrap();
+        stdout.flush().unwrap();
     }
 
     fn start_line(&mut self) {
-        prompt(&mut self.stdout, &mut self.stderr);
+        let col = prompt();
         self.line.clear();
         self.prev_line.clear();
-        let (_, col) = self.get_cursor_pos();
-        self.line_start = col;
+        self.line_start = col as u32;
         self.current_pos = 0;
         self.mode = ProcessingMode::Normal;
     }
 
-    fn debug_log(&mut self, msg: &str) {
+    fn debug_log(&mut self, _msg: &str) {
         if !self.debug {
             return;
         }
+        todo!("lock stdout");
+        /*
         let (row, col) = self.get_cursor_pos();
         assert_eq!(col, self.line_start + self.current_pos);
 
@@ -464,6 +447,7 @@ impl Term {
         self.write("----------------------\x1b[0m".as_bytes());
         self.move_cursor(row, col);
         self.show_cursor();
+        */
     }
 
     fn hide_cursor(&mut self) {
@@ -499,81 +483,126 @@ impl Term {
     }
 
     fn redraw_line(&mut self) {
+        let mut stdout_lock = std::io::stdout().lock();
         let (row, _) = self.get_cursor_pos();
+
         self.hide_cursor();
         self.move_cursor(row, self.line_start);
 
         self.write("\x1b[K".as_bytes());
 
         // Write to stdout instead of self.write() to avoid borrow checker complaints.
-        self.stdout.write(&self.line[0..]).unwrap();
-        self.stdout.flush().unwrap();
+        stdout_lock.write(&self.line[0..]).unwrap();
+        stdout_lock.flush().unwrap();
 
         self.move_cursor(row, self.line_start + self.current_pos);
         self.show_cursor();
     }
 
-    fn try_get_cursor_pos(&mut self) -> Result<(u32, u32), ()> {
-        self.write(&[0x1b, b'[', b'6', b'n']); // Query the terminal for cursor position.
+    fn extract_cursor_pos(bytes: &mut Vec<u8>) -> Option<(u32, u32)> {
+        let mut curr_pos = 0_usize;
+        let mut escape_pos: usize;
+        let mut row_col_divider_pos: usize;
 
-        let mut buf = [0; 32];
-        let mut offset = 0_usize;
-        let mut reading_rows = true;
-        let mut row = 0_u32;
-        let mut col = 0_u32;
-        let mut idx = 2_usize;
+        if bytes.len() < 6 {
+            return None;
+        }
+        // look for: 0x1b "[<ROW>;<COL>R"
+        loop {
+            // Look for 0x1b
+            while curr_pos < bytes.len() && bytes[curr_pos] != 0x1b {
+                curr_pos += 1;
+                continue;
+            }
+            escape_pos = curr_pos;
+            curr_pos += 1;
+            if curr_pos >= bytes.len() {
+                break;
+            }
 
-        'outer: loop {
-            let sz = self.stdin.read(&mut buf[offset..]).unwrap();
-            assert!((sz + offset) < buf.len());
-
-            if offset + sz < 2 {
-                offset += sz;
+            // Confirm '['
+            if bytes[curr_pos] != b'[' {
                 continue;
             }
 
-            if buf[0] != 0x1b {
-                return Err(());
-            }
-            assert_eq!(b'[', buf[1]);
-
-            while idx < (offset + sz) {
-                let c = buf[idx];
-                if c == b';' {
-                    assert!(reading_rows);
-                    reading_rows = false;
-                    idx += 1;
-                    continue;
-                }
-                if c == b'R' {
-                    assert!(!reading_rows);
-                    assert_eq!(idx, (offset + sz - 1));
-                    break 'outer;
-                }
-
-                assert!(c >= b'0');
-                assert!(c <= b'9');
-                let n = (c - b'0') as u32;
-
-                if reading_rows {
-                    row = row * 10 + n;
-                } else {
-                    col = col * 10 + n;
-                }
-
-                idx += 1;
+            curr_pos += 1;
+            // Look for digits + ';'
+            while curr_pos < bytes.len() && bytes[curr_pos].is_ascii_digit() {
+                curr_pos += 1;
+                continue;
             }
 
-            offset += sz;
+            if curr_pos >= bytes.len() {
+                break;
+            }
+
+            if bytes[curr_pos] != b';' {
+                continue;
+            }
+
+            row_col_divider_pos = curr_pos;
+            if row_col_divider_pos == (escape_pos + 2) {
+                continue; // No digits
+            }
+
+            curr_pos += 1;
+
+            // Look for digits + 'R'
+            while curr_pos < bytes.len() && bytes[curr_pos].is_ascii_digit() {
+                curr_pos += 1;
+                continue;
+            }
+
+            if curr_pos >= bytes.len() {
+                break;
+            }
+
+            if bytes[curr_pos] != b'R' {
+                continue;
+            }
+
+            if curr_pos == (row_col_divider_pos + 1) {
+                continue; // No digits
+            }
+
+            // Got what we have been looking for.
+            let mut row = 0_u32;
+            for digit in &bytes[(escape_pos + 2)..row_col_divider_pos] {
+                row = row * 10 + ((*digit - b'0') as u32);
+            }
+
+            let mut col = 0_u32;
+            for digit in &bytes[row_col_divider_pos..curr_pos] {
+                col = col * 10 + ((*digit - b'0') as u32);
+            }
+
+            // Remove the used bytes.
+            let mut new_vec = vec![];
+            new_vec.extend_from_slice(&bytes[0..escape_pos]);
+            new_vec.extend_from_slice(&bytes[(curr_pos + 1)..]);
+            core::mem::swap(&mut new_vec, bytes);
+
+            return Some((row, col));
         }
 
-        Ok((row, col))
+        None
     }
 
     fn get_cursor_pos(&mut self) -> (u32, u32) {
+        self.write(&[0x1b, b'[', b'6', b'n']); // Query the terminal for cursor position.
+
+        let mut incoming_bytes = vec![];
+
+        // wait for: 0x1b "[<ROW>;<COL>R"
         loop {
-            if let Ok(res) = self.try_get_cursor_pos() {
-                return res;
+            let mut buf = [0; 32];
+            let sz = std::io::stdin().read(&mut buf).unwrap();
+            incoming_bytes.extend_from_slice(&buf[0..sz]);
+            if let Some(result) = Self::extract_cursor_pos(&mut incoming_bytes) {
+                for c in &incoming_bytes {
+                    self.incoming.push_back(*c);
+                }
+                return result;
             }
         }
     }
@@ -599,14 +628,15 @@ impl Term {
                 true
             }
             "history" => {
-                self.stdout.write("\r\n".as_bytes()).unwrap();
+                let mut stdout_lock = std::io::stdout().lock();
+                stdout_lock.write("\r\n".as_bytes()).unwrap();
 
                 for line in &self.history {
-                    let written = self.stdout.write(line).unwrap();
+                    let written = stdout_lock.write(line).unwrap();
                     assert_eq!(written, line.len());
-                    self.stdout.write("\r\n".as_bytes()).unwrap();
+                    stdout_lock.write("\r\n".as_bytes()).unwrap();
                 }
-                self.stdout.flush().unwrap();
+                stdout_lock.flush().unwrap();
                 self.maybe_add_to_history(cmd);
                 self.start_line();
 
@@ -624,18 +654,40 @@ impl Term {
     }
 }
 
-fn prompt(stdout: &mut Stdout, stderr: &mut Stderr) {
-    stderr.flush().unwrap();
-    stdout
-        .write(
-            format!(
-                "\r\x1b[32mrush:\x1b[0m {}$ ",
-                std::env::current_dir().unwrap().as_path().to_str().unwrap(),
-            )
-            .as_bytes(),
-        )
-        .map(|_| ())
-        .unwrap();
+fn prompt() -> usize {
+    std::io::stderr().flush().unwrap();
+    let prompt_str = crate::prompt();
+    let bytes = format!("\r\x1b[32mrush:\x1b[0m {}$ ", prompt_str);
 
+    let mut stdout = std::io::stdout().lock();
+    stdout.write_all(bytes.as_bytes()).unwrap();
     stdout.flush().unwrap();
+
+    prompt_str.len() + 9 // "rush: <prompt>$ "
+}
+
+static TERM: Mutex<Option<Term>> = Mutex::new(None);
+
+pub fn init() {
+    debug_assert!(TERM.lock().unwrap().is_none());
+    *TERM.lock().unwrap() = Some(Term::new());
+}
+
+pub fn readline() -> String {
+    let term = &mut *TERM.lock().unwrap();
+    loop {
+        if let Some(line) = term.as_mut().unwrap().readline() {
+            return line;
+        }
+    }
+}
+
+pub fn on_exit() {
+    match &mut *TERM.lock().unwrap() {
+        None => return,
+        Some(term) => {
+            term.write("\x1b[ q".as_bytes()); // Reset the cursor.
+            term.term_impl.on_exit();
+        }
+    }
 }

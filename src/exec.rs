@@ -127,12 +127,12 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
                     Stdio::from(output.stdout.unwrap())
                 });
 
-                let redirect = super::redirect::parse_args(args);
-                if redirect.is_err() {
+                let redirect_to_file = super::redirect::parse_args(args);
+                if redirect_to_file.is_err() {
                     // parse_args() eprints the error message.
                     return Err(-1);
                 }
-                let (args, maybe_redirect) = redirect.unwrap();
+                let (args, maybe_redirect) = redirect_to_file.unwrap();
 
                 let stdout = if (idx < (commands.len() - 1)) || maybe_redirect.is_some() {
                     Stdio::piped()
@@ -146,7 +146,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
                     Stdio::inherit()
                 };
 
-                let output = std::process::Command::new(command)
+                let child = std::process::Command::new(command)
                     .args(args)
                     .stdin(stdin)
                     .stdout(stdout)
@@ -154,14 +154,14 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
                     .envs(env.into_iter())
                     .spawn();
 
-                match output {
-                    Ok(mut output) => {
-                        if let Some(mut redirect) = maybe_redirect {
-                            if let Some(child_stdout) = &mut output.stdout {
-                                redirect.consume_stdout(child_stdout);
+                match child {
+                    Ok(mut child) => {
+                        if let Some(mut redirect_to_file) = maybe_redirect {
+                            if let Some(child_stdout) = &mut child.stdout {
+                                redirect_to_file.consume_stdout(child_stdout);
                             }
                         }
-                        prev_child = Some(output);
+                        prev_child = Some(child);
                     }
                     Err(e) => match e.kind() {
                         std::io::ErrorKind::InvalidFilename => {
@@ -202,7 +202,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
     }
 }
 
-pub fn run_script(fname: &str, args: Vec<String>, global: bool) -> Result<(), i32> {
+pub fn run_script(fname: &str, args: Vec<String>, global: bool) {
     let script = {
         match std::fs::read_to_string(std::path::Path::new(fname)) {
             Ok(text) => text,
@@ -221,10 +221,8 @@ pub fn run_script(fname: &str, args: Vec<String>, global: bool) -> Result<(), i3
         }
         if let Some(commands) = parser.parse_line(line) {
             if let Err(err) = run(commands, global, &args) {
-                return Err(err);
+                std::process::exit(err);
             }
         }
     }
-
-    Ok(())
 }
