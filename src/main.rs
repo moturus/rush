@@ -4,11 +4,11 @@ use std::sync::Mutex;
 
 use exec::run_script;
 
+mod client_relay;
 mod exec;
 mod line_parser;
 mod listener;
 mod redirect;
-mod remote_relay;
 mod term;
 
 #[cfg(unix)]
@@ -27,8 +27,9 @@ impl Drop for Cleanup {
 enum Mode {
     Script, // Run a script and exit.
     Terminal,
+    Piped, // Internal/hidden mode.
     Listener(u16),
-    Relay(String),
+    ClientRelay(String),
 }
 
 static MODE: Mutex<Mode> = Mutex::new(Mode::Script);
@@ -69,7 +70,7 @@ fn main() {
                 if args_raw.len() != 3 {
                     print_usage_and_exit(1);
                 }
-                *MODE.lock().unwrap() = Mode::Relay(args_raw[2].clone());
+                *MODE.lock().unwrap() = Mode::ClientRelay(args_raw[2].clone());
                 break;
             }
             if arg.as_str() == "-l" {
@@ -86,6 +87,12 @@ fn main() {
             if arg.as_str() == "-h" {
                 print_usage_and_exit(0);
             }
+
+            if arg.as_str() == "-piped" {
+                assert_eq!(args_raw.len(), 2);
+                *MODE.lock().unwrap() = Mode::Piped;
+                break;
+            }
             if arg.as_str().starts_with('-') {
                 print_usage_and_exit(1);
             }
@@ -101,7 +108,12 @@ fn main() {
         std::env::set_current_dir(std::path::Path::new("/")).unwrap();
     }
 
-    let mode = MODE.lock().unwrap().clone();
+    let mut mode = MODE.lock().unwrap().clone();
+    if mode == Mode::Script && script.is_none() {
+        // Try running in a terminal.
+        *MODE.lock().unwrap() = Mode::Terminal;
+        mode = Mode::Terminal;
+    }
     match mode {
         Mode::Script => {
             if let Some(script) = script {
@@ -109,14 +121,16 @@ fn main() {
                 run_script(script.as_str(), args, true);
             }
         }
-        Mode::Terminal => {
-            assert_terminal();
+        Mode::Terminal | Mode::Piped => {
             if let Some(script) = script {
                 // This is usually config, setting PATH and such.
                 run_script(script.as_str(), args, true);
             }
+            if mode == Mode::Terminal {
+                assert_terminal();
+            }
             let _cleanup = Cleanup {}; // On panic, restore the terminal state.
-            term::init();
+            term::init(mode == Mode::Piped);
             let mut parser = line_parser::LineParser::new();
 
             let args = vec![];
@@ -132,12 +146,12 @@ fn main() {
             listener::run(port)
             // unreachable
         }
-        Mode::Relay(host_port) => {
+        Mode::ClientRelay(host_port) => {
             assert_terminal();
             assert!(script.is_none());
             let _cleanup = Cleanup {}; // On panic, restore the terminal state.
-            term::init();
-            remote_relay::connect_to(host_port.as_str()).run()
+            term::init(false);
+            client_relay::connect_to(host_port.as_str()).run()
             // unreachable
         }
     }
@@ -151,7 +165,7 @@ fn exit(code: i32) -> ! {
 fn prompt() -> String {
     let mode = MODE.lock().unwrap().clone();
     match mode {
-        Mode::Terminal => std::env::current_dir()
+        Mode::Terminal | Mode::Piped => std::env::current_dir()
             .unwrap()
             .as_path()
             .to_str()
@@ -159,8 +173,4 @@ fn prompt() -> String {
             .to_owned(),
         _ => panic!(),
     }
-}
-
-fn is_term() -> bool {
-    *MODE.lock().unwrap() == Mode::Terminal
 }

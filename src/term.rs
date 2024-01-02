@@ -3,24 +3,29 @@ use std::io::{Read, Write};
 use std::sync::Mutex;
 use std::vec::Vec;
 
+pub trait TermImpl: Send + Sync {
+    fn make_raw(&mut self) {}
+    fn make_cooked(&mut self) {}
+    fn on_exit(&mut self) {}
+}
+
 #[cfg(unix)]
 use crate::term_impl_unix as term_impl;
 
 #[cfg(not(unix))]
 mod term_impl {
-    pub(super) struct TermImpl {}
+    pub use super::PipedTerminal as ArchTerm;
+}
 
-    impl TermImpl {
-        pub(super) fn readline_start(&mut self) {}
-        pub(super) fn readline_done(&mut self) {}
+pub struct PipedTerminal {}
 
-        pub(super) fn on_exit(&mut self) {}
-
-        pub(super) fn new() -> Self {
-            Self {}
-        }
+impl PipedTerminal {
+    pub fn new() -> Self {
+        Self {}
     }
 }
+
+impl TermImpl for PipedTerminal {}
 
 #[derive(Clone, PartialEq, Eq)]
 enum ProcessingMode {
@@ -61,13 +66,13 @@ struct Term {
 
     incoming: VecDeque<u8>,
 
-    term_impl: term_impl::TermImpl,
+    term_impl: Box<dyn TermImpl>,
     escapes_in: std::collections::BTreeMap<&'static [u8], EscapesIn>,
     debug: bool,
 }
 
 impl Term {
-    fn new() -> Self {
+    fn new(piped: bool) -> Self {
         let mut escapes_in: std::collections::BTreeMap<&'static [u8], EscapesIn> =
             std::collections::BTreeMap::new();
 
@@ -88,7 +93,11 @@ impl Term {
             prev_mode: ProcessingMode::Normal,
             line: vec![],
             prev_line: vec![],
-            term_impl: term_impl::TermImpl::new(),
+            term_impl: if piped {
+                Box::new(PipedTerminal::new())
+            } else {
+                Box::new(term_impl::ArchTerm::new())
+            },
             escapes_in,
             line_start: 0,
             current_pos: 0,
@@ -103,7 +112,13 @@ impl Term {
             c
         } else {
             let mut buf = [0_u8; 16];
-            let sz = std::io::stdin().read(&mut buf).unwrap();
+            let sz = match std::io::stdin().read(&mut buf) {
+                Ok(sz) => sz,
+                Err(err) => {
+                    println!("stdin() read failed with: {:?}", err);
+                    crate::exit(1);
+                }
+            };
             assert!(sz > 0);
             let c = buf[0];
             for b in &buf[1..sz] {
@@ -130,10 +145,10 @@ impl Term {
                     8 | 127 /* BS */ => {
                         ProcessByteResult::Escape(EscapesIn::Backspace)
                     },
-                    10 /* 13 | 10 */ /* CR/NL */ => {
+                    13 /* 13 | 10 */ /* CR/NL */ => {
                         ProcessByteResult::Newline
                     }
-                    13 => ProcessByteResult::Continue, // Avoid double newlines
+                    10 => ProcessByteResult::Continue, // Avoid double newlines
                     0x1b /* ESC */ => {
                         self.prev_mode = self.mode.clone();
                         self.mode = ProcessingMode::Escape(vec![0x1b]);
@@ -203,7 +218,7 @@ impl Term {
     }
 
     fn readline(&mut self) -> Option<String> {
-        self.term_impl.readline_start();
+        self.term_impl.make_raw();
         self.start_line();
 
         if !self.history.is_empty() {
@@ -264,7 +279,7 @@ impl Term {
                         break;
                     } else {
                         self.write("\r\n".as_bytes());
-                        self.term_impl.readline_done();
+                        self.term_impl.make_cooked();
                         self.maybe_add_to_history(cmd.as_str());
                         return Some(cmd);
                     }
@@ -668,9 +683,9 @@ fn prompt() -> usize {
 
 static TERM: Mutex<Option<Term>> = Mutex::new(None);
 
-pub fn init() {
+pub fn init(piped: bool) {
     debug_assert!(TERM.lock().unwrap().is_none());
-    *TERM.lock().unwrap() = Some(Term::new());
+    *TERM.lock().unwrap() = Some(Term::new(piped));
 }
 
 pub fn readline() -> String {
@@ -688,6 +703,15 @@ pub fn on_exit() {
         Some(term) => {
             term.write("\x1b[ q".as_bytes()); // Reset the cursor.
             term.term_impl.on_exit();
+        }
+    }
+}
+
+pub fn make_raw() {
+    match &mut *TERM.lock().unwrap() {
+        None => panic!(),
+        Some(term) => {
+            term.term_impl.make_raw();
         }
     }
 }

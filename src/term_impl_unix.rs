@@ -1,27 +1,11 @@
 use libc::termios as Termios;
 
-pub(super) struct TermImpl {
+pub(super) struct ArchTerm {
     cooked_termios: Termios,
     raw_termios: Termios,
 }
 
-impl TermImpl {
-    pub(super) fn readline_start(&mut self) {
-        unsafe {
-            libc::tcsetattr(libc::STDOUT_FILENO, libc::TCSANOW, &self.raw_termios);
-        }
-    }
-
-    pub(super) fn readline_done(&mut self) {
-        unsafe {
-            libc::tcsetattr(libc::STDOUT_FILENO, libc::TCSANOW, &self.cooked_termios);
-        }
-    }
-
-    pub(super) fn on_exit(&mut self) {
-        self.readline_done(); // Restore termios.
-    }
-
+impl ArchTerm {
     pub(super) fn new() -> Self {
         let mut cooked_termios: Termios = unsafe { core::mem::zeroed() };
         unsafe {
@@ -45,5 +29,23 @@ impl TermImpl {
             cooked_termios,
             raw_termios,
         }
+    }
+}
+
+impl super::term::TermImpl for ArchTerm {
+    fn make_raw(&mut self) {
+        unsafe {
+            libc::tcsetattr(libc::STDOUT_FILENO, libc::TCSANOW, &self.raw_termios);
+        }
+    }
+
+    fn make_cooked(&mut self) {
+        unsafe {
+            libc::tcsetattr(libc::STDOUT_FILENO, libc::TCSANOW, &self.cooked_termios);
+        }
+    }
+
+    fn on_exit(&mut self) {
+        self.make_cooked(); // Restore termios.
     }
 }
