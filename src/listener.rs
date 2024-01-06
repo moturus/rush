@@ -151,11 +151,7 @@ fn server_thread(mut client: TcpStream) {
             let mut buf = [0_u8; 80];
             let sz = match remote_stdin.read(&mut buf) {
                 Ok(sz) => sz,
-                Err(err) => {
-                    if err.kind() == std::io::ErrorKind::WouldBlock {
-                        // Sometimes this happens in Linux.
-                        continue;
-                    }
+                Err(_) => {
                     break;
                 }
             };
