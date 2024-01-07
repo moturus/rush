@@ -1,10 +1,17 @@
 [package]
-name = "rush"
+name = "moto-rush"
 description = "A posixy shell implemented in Rust with minimal external dependencies."
 version = "0.1.0"
 edition = "2021"
-authors = ["Lasiotus"]
+authors = ["U. Lasiotus"]
+keywords = ["shell"]
+categories = ["shell"]
+repository = "https://github.com/moturus/rush"
 license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "rush"
+path = "src/main.rs"
 
 [dependencies]
 # glob = "0.3.1"
