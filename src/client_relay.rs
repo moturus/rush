@@ -118,8 +118,8 @@ pub fn connect_to(host_port: &str) -> ClientRelay {
     }
     remote_conn.flush().unwrap();
     let mut buf = [0_u8; crate::RUSH_HANDSHAKE.len()];
-    if let Err(_) = remote_conn.read_exact(&mut buf) {
-        eprintln!("rush: handshake failed (2).");
+    if let Err(err) = remote_conn.read_exact(&mut buf) {
+        eprintln!("rush: handshake failed (2): {:?}.", err);
         std::process::exit(1);
     }
     if buf != crate::RUSH_HANDSHAKE.as_bytes() {
