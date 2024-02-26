@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::sync::Mutex;
-use std::vec::Vec;
 
 pub trait TermImpl: Send + Sync {
     fn make_raw(&mut self) {}
