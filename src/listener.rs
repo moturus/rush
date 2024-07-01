@@ -151,7 +151,8 @@ fn server_thread(mut client: TcpStream) {
             let mut buf = [0_u8; 80];
             let sz = match remote_stdin.read(&mut buf) {
                 Ok(sz) => sz,
-                Err(_) => {
+                Err(err) => {
+                    println!("Remote read failed with {:?}", err);
                     break;
                 }
             };
@@ -161,9 +162,11 @@ fn server_thread(mut client: TcpStream) {
             }
 
             if local_stdin.write_all(&buf[0..sz]).is_err() {
+                println!("Local write failed");
                 break;
             }
             if local_stdin.flush().is_err() {
+                println!("Local write failed");
                 break;
             }
         }

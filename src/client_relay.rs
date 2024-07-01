@@ -25,15 +25,20 @@ impl ClientRelay {
             loop {
                 let mut buf = [0_u8; 128];
                 let mut done = false;
-                let mut sz = if let Ok(sz) = receiver.read(&mut buf) {
-                    sz
-                } else {
-                    break;
+                let mut sz = match receiver.read(&mut buf) {
+                    Ok(sz) => sz,
+                    Err(err) => {
+                        eprintln!("exit: remote read failed with {:?}", err);
+                        break;
+                    }
                 };
                 if sz == 0 {
+                    eprintln!("exit: remote read done");
                     break;
                 }
 
+                // The "server" side of rush sends 3u8 to indicate
+                // it wants to end the session.
                 if buf[sz - 1] == 3 {
                     // End of session.
                     sz -= 1;
@@ -51,13 +56,8 @@ impl ClientRelay {
                     }
                 }
 
-                if std::io::stdout().write_all(&buf[0..sz]).is_err() {
-                    break;
-                }
-                if std::io::stdout().flush().is_err() {
-                    break;
-                }
-
+                std::io::stdout().write_all(&buf[0..sz]).unwrap();
+                std::io::stdout().flush().unwrap();
                 if done {
                     break;
                 }
