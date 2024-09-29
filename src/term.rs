@@ -114,10 +114,17 @@ impl Term {
             let sz = match std::io::stdin().read(&mut buf) {
                 Ok(sz) => sz,
                 Err(err) => {
-                    println!("stdin() read failed with: {:?}", err);
-                    crate::exit(1);
+                    eprintln!("stdin() read failed with: {:?}", err);
+                    self.term_impl.make_raw();
+                    std::process::exit(1);
                 }
             };
+            if sz == 0 {
+                // stdlib sometimes converts stdio errors into zero reads
+                eprintln!("stdin() EOF");
+                self.term_impl.make_raw();
+                std::process::exit(1);
+            }
             assert!(sz > 0);
             let c = buf[0];
             for b in &buf[1..sz] {
@@ -707,7 +714,7 @@ pub fn on_exit() {
 }
 
 pub fn make_raw() {
-    match &mut *TERM.lock().unwrap() {
+    match &mut *TERM.try_lock().unwrap() {
         None => panic!(),
         Some(term) => {
             term.term_impl.make_raw();
