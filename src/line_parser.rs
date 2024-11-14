@@ -1,15 +1,10 @@
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Default)]
 enum State {
+    #[default]
     Normal,
     Quoted(char),
     Escape, // Last char was '\'
     QuotedEscape(char),
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Normal
-    }
 }
 
 #[derive(Default)]
@@ -35,9 +30,7 @@ impl LineParser {
                     self.finish_token();
                 } else if c == '|' {
                     self.finish_command();
-                } else if c == '\'' {
-                    self.state = State::Quoted(c);
-                } else if c == '\"' {
+                } else if c == '\'' || c == '\"' {
                     self.state = State::Quoted(c);
                 } else if c == '\\' {
                     self.state = State::Escape;
@@ -94,11 +87,11 @@ impl LineParser {
     }
 
     fn process_arg(arg: &str) -> Vec<String> {
-        let mut result: Vec<String> = Vec::new();
-
         // Disable glob processing: it removes trailing slashes, which
         // are meaningful in commands like mv.
         /*
+        let mut result: Vec<String> = Vec::new();
+
         match glob::glob(arg) {
             Ok(paths) => {
                 for entry in paths {
@@ -117,11 +110,12 @@ impl LineParser {
         if result.is_empty() {
             result.push(arg.to_owned());
         }
-        */
 
         result.push(arg.to_owned());
 
         result
+        */
+        vec![arg.to_owned()]
     }
 
     // Parse a line; return a vector of pipelined commands to run, each

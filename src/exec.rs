@@ -1,7 +1,7 @@
 use std::{path::Path, process::Stdio};
 
 fn is_var(token: &str) -> bool {
-    if token.len() == 0 || token.len() != token.trim().len() {
+    if token.is_empty() || token.len() != token.trim().len() {
         return false;
     }
 
@@ -47,14 +47,14 @@ fn apply_global_env(env: &Vec<(&str, &str)>) {
     }
 }
 
-fn process_vars(tokens: &[String], _env: &Vec<(&str, &str)>, args: &Vec<String>) -> Vec<String> {
+fn process_vars(tokens: &[String], _env: &[(&str, &str)], args: &[String]) -> Vec<String> {
     // We should do a proper language interpreter with AST later.
     // For now we have something simple to bootstrap things.
 
     let mut result = Vec::new();
     for token in tokens {
         if token.as_str() == "$@" {
-            for arg in &args.as_slice()[1..] {
+            for arg in &args[1..] {
                 result.push(arg.clone());
             }
         } else {
@@ -65,7 +65,7 @@ fn process_vars(tokens: &[String], _env: &Vec<(&str, &str)>, args: &Vec<String>)
     result
 }
 
-pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Result<(), i32> {
+pub fn run(commands: Vec<Vec<String>>, global: bool, args: &[String]) -> Result<(), i32> {
     let mut prev_child = None;
     let mut cmd = None;
 
@@ -100,7 +100,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
 
         // Process inline vars.
         let command = process_vars(command, &env, args);
-        if command.len() == 0 {
+        if command.is_empty() {
             continue;
         }
 
@@ -115,7 +115,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &Vec<String>) -> Resu
                 }
                 let new_dir = args[0].as_str();
                 let root = Path::new(new_dir);
-                if let Err(e) = std::env::set_current_dir(&root) {
+                if let Err(e) = std::env::set_current_dir(root) {
                     println!("{}", e);
                 }
 

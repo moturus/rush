@@ -294,7 +294,7 @@ impl Term {
                 ProcessByteResult::Escape(e) => match e {
                     EscapesIn::UpArrow => match self.mode {
                         ProcessingMode::Normal => {
-                            if self.history.len() > 0 {
+                            if !self.history.is_empty() {
                                 self.mode = ProcessingMode::History(self.history.len() - 1);
                                 self.show_cursor();
                                 let prev = self.history.last().unwrap().clone();
@@ -513,7 +513,7 @@ impl Term {
         self.write("\x1b[K".as_bytes());
 
         // Write to stdout instead of self.write() to avoid borrow checker complaints.
-        stdout_lock.write(&self.line[0..]).unwrap();
+        stdout_lock.write_all(&self.line[0..]).unwrap();
         stdout_lock.flush().unwrap();
 
         self.move_cursor(row, self.line_start + self.current_pos);
@@ -629,7 +629,7 @@ impl Term {
     }
 
     fn maybe_add_to_history(&mut self, cmd: &str) {
-        if self.history.len() == 0 || *self.history.last().unwrap() != cmd.as_bytes() {
+        if self.history.is_empty() || *self.history.last().unwrap() != cmd.as_bytes() {
             self.history.push(Vec::from(cmd.as_bytes()));
         }
     }
@@ -650,12 +650,12 @@ impl Term {
             }
             "history" => {
                 let mut stdout_lock = std::io::stdout().lock();
-                stdout_lock.write("\r\n".as_bytes()).unwrap();
+                stdout_lock.write_all("\r\n".as_bytes()).unwrap();
 
                 for line in &self.history {
                     let written = stdout_lock.write(line).unwrap();
                     assert_eq!(written, line.len());
-                    stdout_lock.write("\r\n".as_bytes()).unwrap();
+                    stdout_lock.write_all("\r\n".as_bytes()).unwrap();
                 }
                 stdout_lock.flush().unwrap();
                 self.maybe_add_to_history(cmd);
@@ -704,12 +704,9 @@ pub fn readline() -> String {
 }
 
 pub fn on_exit() {
-    match &mut *TERM.lock().unwrap() {
-        None => return,
-        Some(term) => {
-            term.write("\x1b[ q".as_bytes()); // Reset the cursor.
-            term.term_impl.on_exit();
-        }
+    if let Some(term) = &mut *TERM.lock().unwrap() {
+        term.write("\x1b[ q".as_bytes()); // Reset the cursor.
+        term.term_impl.on_exit();
     }
 }
 

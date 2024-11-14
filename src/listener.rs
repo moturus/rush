@@ -29,7 +29,7 @@ pub fn run(port: u16) -> ! {
 
     println!("rush server: listening on 0.0.0.0:{}\n", port);
 
-    std::thread::spawn(move || input_listener());
+    std::thread::spawn(input_listener);
 
     for tcp_stream in listener.incoming() {
         handle_connection(tcp_stream);
@@ -45,10 +45,7 @@ fn handle_connection(maybe_stream: std::io::Result<TcpStream>) {
                 server_thread(stream);
             });
         }
-        Err(error) => {
-            eprintln!("rush: bad connection: {:?}.", error);
-            return;
-        }
+        Err(error) => eprintln!("rush: bad connection: {:?}.", error),
     }
 }
 
@@ -71,7 +68,7 @@ fn spawn_shell() -> Child {
 
 fn server_thread(mut client: TcpStream) {
     let mut buf = [0_u8; crate::RUSH_HANDSHAKE.len()];
-    if let Err(_) = client.read_exact(&mut buf) {
+    if client.read_exact(&mut buf).is_err() {
         eprintln!("rush: handshake failed (1).");
         return;
     }
@@ -79,7 +76,7 @@ fn server_thread(mut client: TcpStream) {
         eprintln!("rush: handshake failed (2).");
         return;
     }
-    if let Err(_) = client.write_all(crate::RUSH_HANDSHAKE.as_bytes()) {
+    if client.write_all(crate::RUSH_HANDSHAKE.as_bytes()).is_err() {
         eprintln!("rush: handshake failed (3).");
         return;
     }
@@ -101,19 +98,16 @@ fn server_thread(mut client: TcpStream) {
     remote_stdout.set_nodelay(true).unwrap();
     let stdout_thread = std::thread::spawn(move || {
         let mut buf = [0_u8; 80];
-        loop {
-            if let Ok(sz) = local_stdout.read(&mut buf) {
-                if sz > 0 {
-                    if remote_stdout.write_all(&buf[0..sz]).is_err() {
-                        break;
-                    }
-                } else {
+        while let Ok(sz) = local_stdout.read(&mut buf) {
+            if sz > 0 {
+                if remote_stdout.write_all(&buf[0..sz]).is_err() {
                     break;
                 }
             } else {
                 break;
             }
         }
+
         // Signal the end of this session.
         let ctrl_c = [3_u8; 1];
         let _ = remote_stdout.write_all(&ctrl_c);
@@ -128,13 +122,9 @@ fn server_thread(mut client: TcpStream) {
     remote_stderr.set_nodelay(true).unwrap();
     let stderr_thread = std::thread::spawn(move || {
         let mut buf = [0_u8; 80];
-        loop {
-            if let Ok(sz) = local_stderr.read(&mut buf) {
-                if sz > 0 {
-                    if remote_stderr.write_all(&buf[0..sz]).is_err() {
-                        break;
-                    }
-                } else {
+        while let Ok(sz) = local_stderr.read(&mut buf) {
+            if sz > 0 {
+                if remote_stderr.write_all(&buf[0..sz]).is_err() {
                     break;
                 }
             } else {

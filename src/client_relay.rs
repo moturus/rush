@@ -112,7 +112,10 @@ pub fn connect_to(host_port: &str) -> ClientRelay {
 
     // Handshake.
     remote_conn.set_nodelay(true).unwrap();
-    if let Err(_) = remote_conn.write_all(crate::RUSH_HANDSHAKE.as_bytes()) {
+    if remote_conn
+        .write_all(crate::RUSH_HANDSHAKE.as_bytes())
+        .is_err()
+    {
         eprintln!("rush: handshake failed (1).");
         std::process::exit(1);
     }
