@@ -121,7 +121,8 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &[String]) -> Result<
 
                 prev_child = None;
             }
-            "exit" | "quit" => crate::exit(0),
+            "quit" => crate::exit(0),
+            "exit" => process_exit(args),
             command => {
                 let stdin = prev_child.map_or(Stdio::inherit(), |output: std::process::Child| {
                     Stdio::from(output.stdout.unwrap())
@@ -224,5 +225,24 @@ pub fn run_script(fname: &str, args: Vec<String>, global: bool) {
                 std::process::exit(err);
             }
         }
+    }
+}
+
+pub fn run_command(args: Vec<String>) {
+    if let Err(err) = run(vec![args], true, &[]) {
+        std::process::exit(err);
+    }
+    std::process::exit(0);
+}
+
+fn process_exit(args: &[String]) -> ! {
+    if args.is_empty() {
+        crate::exit(0);
+    }
+
+    if let Ok(exit_val) = args[0].as_str().parse::<i32>() {
+        crate::exit(exit_val);
+    } else {
+        crate::exit(-1);
     }
 }

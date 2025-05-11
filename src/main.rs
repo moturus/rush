@@ -25,6 +25,7 @@ impl Drop for Cleanup {
 
 #[derive(Clone, PartialEq, Eq)]
 enum Mode {
+    Command,
     Script, // Run a script and exit.
     Terminal,
     Piped, // Internal/hidden mode.
@@ -37,8 +38,9 @@ static MODE: Mutex<Mode> = Mutex::new(Mode::Script);
 fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("(rush) usage:");
     eprintln!("    -h: print this message");
-    eprintln!("    -t: terminal mode + init script");
-    eprintln!("    -c $HOST:$PORT: connect to a remote listener");
+    eprintln!("    -c: read commands from the command string (stdin is ignored");
+    eprintln!("    -i: terminal mode + init script");
+    eprintln!("    -r $HOST:$PORT: connect to a remote listener");
     eprintln!("    -l $PORT: listen on a local port");
     std::process::exit(code);
 }
@@ -62,11 +64,15 @@ fn main() {
     for idx in 1..args_raw.len() {
         let arg = args_raw[idx].clone();
         if idx == 1 {
-            if arg.as_str() == "-t" {
+            if arg.as_str() == "-i" {
                 *MODE.lock().unwrap() = Mode::Terminal;
                 continue;
             }
             if arg.as_str() == "-c" {
+                *MODE.lock().unwrap() = Mode::Command;
+                continue;
+            }
+            if arg.as_str() == "-r" {
                 if args_raw.len() != 3 {
                     print_usage_and_exit(1);
                 }
@@ -98,7 +104,7 @@ fn main() {
             }
         }
 
-        if script.is_none() {
+        if script.is_none() && *MODE.lock().unwrap() != Mode::Command {
             script = Some(arg.clone());
         }
         args.push(arg);
@@ -115,6 +121,8 @@ fn main() {
         mode = Mode::Terminal;
     }
     match mode {
+        Mode::Command => crate::exec::run_command(args),
+
         Mode::Script => {
             if let Some(script) = script {
                 // This is usually config, setting PATH and such.
