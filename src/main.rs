@@ -38,7 +38,7 @@ static MODE: Mutex<Mode> = Mutex::new(Mode::Script);
 fn print_usage_and_exit(code: i32) -> ! {
     eprintln!("(rush) usage:");
     eprintln!("    -h: print this message");
-    eprintln!("    -c: read commands from the command string (stdin is ignored");
+    eprintln!("    -c: read commands from the command string (stdin is ignored)");
     eprintln!("    -i: terminal mode + init script");
     eprintln!("    -r $HOST:$PORT: connect to a remote listener");
     eprintln!("    -l $PORT: listen on a local port");
