@@ -23,11 +23,11 @@ pub fn run(port: u16) -> ! {
     let listener = if let Ok(listener) = std::net::TcpListener::bind(addr) {
         listener
     } else {
-        eprintln!("rush: TcpListener.bind('0.0.0.0:{}') failed.", port);
+        eprintln!("rush: TcpListener.bind('0.0.0.0:{port}') failed.");
         std::process::exit(1);
     };
 
-    println!("rush server: listening on 0.0.0.0:{}\n", port);
+    println!("rush server: listening on 0.0.0.0:{port}\n");
 
     std::thread::spawn(input_listener);
 
@@ -45,7 +45,7 @@ fn handle_connection(maybe_stream: std::io::Result<TcpStream>) {
                 server_thread(stream);
             });
         }
-        Err(error) => eprintln!("rush: bad connection: {:?}.", error),
+        Err(error) => eprintln!("rush: bad connection: {error:?}."),
     }
 }
 
@@ -60,7 +60,7 @@ fn spawn_shell() -> Child {
     match command.spawn() {
         Ok(child) => child,
         Err(err) => {
-            eprintln!("rush: error spawning '{self_cmd}': {:?}.", err);
+            eprintln!("rush: error spawning '{self_cmd}': {err:?}.");
             std::process::exit(1);
         }
     }
@@ -87,7 +87,7 @@ fn server_thread(mut client: TcpStream) {
     } else {
         return;
     };
-    println!("rush: new connection from {:?}.", remote_addr);
+    println!("rush: new connection from {remote_addr:?}.");
 
     let mut shell = spawn_shell();
     client.set_nodelay(true).unwrap();
@@ -142,7 +142,7 @@ fn server_thread(mut client: TcpStream) {
             let sz = match remote_stdin.read(&mut buf) {
                 Ok(sz) => sz,
                 Err(err) => {
-                    println!("Remote read failed with {:?}", err);
+                    println!("Remote read failed with {err:?}");
                     break;
                 }
             };
@@ -169,5 +169,5 @@ fn server_thread(mut client: TcpStream) {
     stdin_thread.join().unwrap();
     stdout_thread.join().unwrap();
     stderr_thread.join().unwrap();
-    println!("rush: connection from {:?} closed.", remote_addr);
+    println!("rush: connection from {remote_addr:?} closed.");
 }

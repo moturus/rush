@@ -39,13 +39,12 @@ pub fn parse_args(args: &[String]) -> Result<(Vec<String>, Option<RedirectToFile
     }
 
     let mut redirect = None;
-    if op.is_some() {
+    if let Some(op) = op {
         if redirect_fname.is_none() {
             eprintln!("rush: syntax error: a redirect without a filename.");
             return Err(());
         }
 
-        let op = op.unwrap();
         let fname = redirect_fname.unwrap();
 
         let file = if op == ">" {
@@ -60,7 +59,7 @@ pub fn parse_args(args: &[String]) -> Result<(Vec<String>, Option<RedirectToFile
         };
 
         if file.is_err() {
-            eprintln!("rush: can't open file '{}'.", fname);
+            eprintln!("rush: can't open file '{fname}'.");
             return Err(());
         }
 

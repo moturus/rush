@@ -114,7 +114,7 @@ impl Term {
             let sz = match std::io::stdin().read(&mut buf) {
                 Ok(sz) => sz,
                 Err(err) => {
-                    eprintln!("stdin() read failed with: {:?}", err);
+                    eprintln!("stdin() read failed with: {err:?}");
                     self.term_impl.make_raw();
                     std::process::exit(1);
                 }
@@ -165,7 +165,7 @@ impl Term {
                         ProcessByteResult::Continue
                     }
                     _ => {
-                        self.debug_log(format!("unrecognized char: 0x{:x}", c).as_str());
+                        self.debug_log(format!("unrecognized char: 0x{c:x}").as_str());
                         self.write(&[7_u8]);  // Beep.
                         ProcessByteResult::Continue
                     }
@@ -258,7 +258,7 @@ impl Term {
                         self.write(&[0x1b, b'[', b'1', b'C']); // Move right.
                     }
                     self.current_pos += 1;
-                    self.debug_log(format!("got c {}", c).as_str());
+                    self.debug_log(format!("got c {c}").as_str());
                 }
                 ProcessByteResult::Newline => {
                     match self.mode {
@@ -271,7 +271,7 @@ impl Term {
                     let cmd = match std::str::from_utf8(&self.line[..]) {
                         Ok(s) => s.trim(),
                         Err(err) => {
-                            eprintln!("\nError: non-utf8 input: {:?}.", err);
+                            eprintln!("\nError: non-utf8 input: {err:?}.");
                             crate::exit(1);
                         }
                     }
@@ -500,7 +500,7 @@ impl Term {
             self.write("\x1b[H".as_bytes());
             return;
         }
-        self.write(format!("\x1b[{};{}H", row, col).as_bytes());
+        self.write(format!("\x1b[{row};{col}H").as_bytes());
     }
 
     fn redraw_line(&mut self) {
@@ -678,7 +678,7 @@ impl Term {
 fn prompt() -> usize {
     std::io::stderr().flush().unwrap();
     let prompt_str = crate::prompt();
-    let bytes = format!("\r\x1b[32mrush:\x1b[0m {}$ ", prompt_str);
+    let bytes = format!("\r\x1b[32mrush:\x1b[0m {prompt_str}$ ");
 
     let mut stdout = std::io::stdout().lock();
     stdout.write_all(bytes.as_bytes()).unwrap();

@@ -28,7 +28,7 @@ impl ClientRelay {
                 let mut sz = match receiver.read(&mut buf) {
                     Ok(sz) => sz,
                     Err(err) => {
-                        eprintln!("exit: remote read failed with {:?}", err);
+                        eprintln!("exit: remote read failed with {err:?}");
                         break;
                     }
                 };
@@ -105,7 +105,7 @@ pub fn connect_to(host_port: &str) -> ClientRelay {
     let mut remote_conn = match TcpStream::connect_timeout(&addr, Duration::new(1, 0)) {
         Ok(stream) => stream,
         Err(err) => {
-            eprintln!("rush: error connecting to {}: {:?}.", host_port, err);
+            eprintln!("rush: error connecting to {host_port}: {err:?}.");
             std::process::exit(1);
         }
     };
@@ -122,7 +122,7 @@ pub fn connect_to(host_port: &str) -> ClientRelay {
     remote_conn.flush().unwrap();
     let mut buf = [0_u8; crate::RUSH_HANDSHAKE.len()];
     if let Err(err) = remote_conn.read_exact(&mut buf) {
-        eprintln!("rush: handshake failed (2): {:?}.", err);
+        eprintln!("rush: handshake failed (2): {err:?}.");
         std::process::exit(1);
     }
     if buf != crate::RUSH_HANDSHAKE.as_bytes() {
@@ -130,6 +130,6 @@ pub fn connect_to(host_port: &str) -> ClientRelay {
         std::process::exit(1);
     }
 
-    println!("rush: connected to {}", host_port);
+    println!("rush: connected to {host_port}");
     ClientRelay { remote_conn }
 }

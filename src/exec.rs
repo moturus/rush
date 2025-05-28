@@ -116,7 +116,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &[String]) -> Result<
                 let new_dir = args[0].as_str();
                 let root = Path::new(new_dir);
                 if let Err(e) = std::env::set_current_dir(root) {
-                    println!("{}", e);
+                    println!("{e}");
                 }
 
                 prev_child = None;
@@ -170,7 +170,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &[String]) -> Result<
                             return Err(-1);
                         }
                         _ => {
-                            println!("Command [{}] failed with error: [{}].", command, e);
+                            println!("Command [{command}] failed with error: [{e}].");
                             return Err(-1);
                         }
                     },
@@ -194,7 +194,7 @@ pub fn run(commands: Vec<Vec<String>>, global: bool, args: &[String]) -> Result<
                 }
             }
             Err(err) => {
-                println!("{:?}", err);
+                println!("{err:?}");
                 Err(-1)
             }
         }
@@ -208,7 +208,7 @@ pub fn run_script(fname: &str, args: Vec<String>, global: bool) {
         match std::fs::read_to_string(std::path::Path::new(fname)) {
             Ok(text) => text,
             Err(err) => {
-                eprintln!("Error reading '{}': {:?}", fname, err);
+                eprintln!("Error reading '{fname}': {err:?}");
                 std::process::exit(1);
             }
         }
