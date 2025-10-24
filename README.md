@@ -1,4 +1,8 @@
 # rush
+
+## Archived: the repo has been moved to [Motor OS repo](https://github.com/moturus/motor-os/tree/main/src/bin/rush).
+
+
 RUst SHell: a posixy shell implemented in Rust with minimal external dependencies.
 
 Q: Why another shell in Rust?
